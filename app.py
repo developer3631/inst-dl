@@ -59,6 +59,7 @@ def best_format(info, username, index):
             "audio_url": audio_url}
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
@@ -126,7 +127,9 @@ def info():
         username, items = embed_fallback(link)
         if items:
             return jsonify(title=username, items=items)
-        return jsonify(error="تعذر جلب المحتوى. قد يكون الحساب خاصاً أو الرابط خاطئ."), 422
+        detail = ANSI.sub("", str(e))[:300]
+        return jsonify(error="تعذر جلب المحتوى. قد يكون الحساب خاصاً أو الرابط خاطئ.",
+                       detail=detail), 422
 
     entries = data.get("entries") or [data]
     username = pick_username(data)
@@ -138,6 +141,44 @@ def info():
     if not items:
         return jsonify(error="لم يتم العثور على وسائط قابلة للتحميل."), 404
     return jsonify(title=data.get("title") or "instagram", items=items)
+
+
+@app.get("/api/debug")
+def debug():
+    """تشخيص: يعرض سبب الفشل وقائمة الصيغ المتاحة. افتحه في المتصفح وأرسل لي النتيجة."""
+    link = request.args.get("url", "").strip()
+    if not IG_URL.match(link):
+        return jsonify(error="invalid url"), 400
+    out = {"yt_dlp_version": yt_dlp.version.__version__,
+           "cookies_file": bool(COOKIES and os.path.exists(COOKIES))}
+    try:
+        import imageio_ffmpeg
+        out["ffmpeg"] = os.path.exists(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception as e:
+        out["ffmpeg"] = f"missing: {e}"
+    opts = {"quiet": True, "skip_download": True}
+    if COOKIES and os.path.exists(COOKIES):
+        opts["cookiefile"] = COOKIES
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            data = ydl.extract_info(link, download=False)
+        keys = ("format_id", "ext", "vcodec", "acodec", "height", "protocol")
+        out["entries"] = [
+            {"id": e.get("id"), "ext": e.get("ext"),
+             "formats": [{k: f.get(k) for k in keys} for f in (e.get("formats") or [])]}
+            for e in (data.get("entries") or [data]) if e]
+    except Exception as e:
+        out["yt_dlp_error"] = ANSI.sub("", str(e))[:500]
+    m = re.search(r"instagram\.com/(?:[\w.]+/)?(?:p|reel|reels|tv)/([\w-]+)", link)
+    if m:
+        try:
+            r = requests.get(f"https://www.instagram.com/p/{m.group(1)}/embed/captioned/",
+                             headers={"User-Agent": UA}, timeout=15)
+            out["embed_status"] = r.status_code
+            out["embed_images_found"] = len(parse_embed(r.text)[1]) if r.ok else 0
+        except Exception as e:
+            out["embed_error"] = str(e)[:200]
+    return jsonify(out)
 
 
 def merged_response(video, audio, name):

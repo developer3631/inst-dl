@@ -31,7 +31,8 @@ button,.btn{display:block;width:100%;margin-top:12px;padding:14px;font:inherit;f
   text-align:center;text-decoration:none;color:var(--accent-ink);background:var(--accent);
   border:0;border-radius:10px;cursor:pointer}
 button:disabled{opacity:.6;cursor:wait}
-#msg{margin:16px 0 0;min-height:1.5em;color:var(--danger)}
+#msg{margin:16px 0 0;min-height:1.5em;color:var(--danger);white-space:pre-wrap}
+#msg small{display:block;margin-top:8px;color:var(--muted);direction:ltr;text-align:left;word-break:break-word}
 #results{display:grid;gap:16px;margin-top:16px}
 .item{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .item img{display:block;width:100%;max-height:360px;object-fit:cover;background:var(--line)}
@@ -68,7 +69,11 @@ async function run(){
   try{
     const res = await fetch("/api/info?url=" + encodeURIComponent(link));
     const data = await res.json();
-    if(!res.ok){ msg.textContent = data.error || "حدث خطأ غير متوقع."; return; }
+    if(!res.ok){
+      msg.textContent = data.error || "حدث خطأ غير متوقع.";
+      if(data.detail){ const d = document.createElement("small"); d.textContent = data.detail; msg.append(d); }
+      return;
+    }
 
     data.items.forEach((it, i) => {
       const card = document.createElement("div"); card.className = "item";

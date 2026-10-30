@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from urllib.parse import urlparse
 
 import requests
@@ -261,6 +262,52 @@ def download():
     if "Content-Length" in upstream.headers:
         headers["Content-Length"] = upstream.headers["Content-Length"]
     return Response(upstream.iter_content(64 * 1024), headers=headers)
+
+
+@app.post("/api/zip")
+def zip_images():
+    """يجمع الصور المحددة في ملف ZIP واحد."""
+    urls = request.form.getlist("u")[:30]
+    names = request.form.getlist("n")
+    zname = re.sub(r"[^A-Za-z0-9._-]", "_", request.form.get("z", "instagram"))[:60] or "instagram"
+    if not urls or not all(allowed_host(u) for u in urls):
+        abort(400)
+
+    tmp = tempfile.mkdtemp()
+    out = os.path.join(tmp, "all.zip")
+    try:
+        used = set()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as zf:
+            for i, u in enumerate(urls):
+                fname = re.sub(r"[^A-Za-z0-9._-]", "_", names[i] if i < len(names) else f"image_{i + 1}.jpg")
+                if fname in used:
+                    fname = f"{i + 1}_{fname}"
+                used.add(fname)
+                part = os.path.join(tmp, f"part{i}")
+                fetch_to(part, u)
+                zf.write(part, fname)
+                os.remove(part)
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        app.logger.error("zip failed: %s", e)
+        return jsonify(error="تعذر تجميع الصور.", detail=str(e)[:300]), 502
+
+    def stream():
+        try:
+            with open(out, "rb") as f:
+                while True:
+                    chunk = f.read(256 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    return Response(stream(), headers={
+        "Content-Type": "application/zip",
+        "Content-Length": str(os.path.getsize(out)),
+        "Content-Disposition": f'attachment; filename="{zname}.zip"',
+    })
 
 
 if __name__ == "__main__":

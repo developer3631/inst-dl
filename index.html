@@ -41,6 +41,7 @@ button:disabled{opacity:.6;cursor:wait}
 .item img,.item video{display:block;width:100%;max-height:420px;object-fit:contain;background:#000}
 .item .row{padding:12px;margin:0}
 .item .note{margin:0;padding:8px 12px 0;color:var(--muted);font-size:.9rem}
+.zipform button{width:100%}
 footer{margin-top:32px;color:var(--muted);font-size:.85rem}
 </style>
 </head>
@@ -126,6 +127,21 @@ function toggleVideo(card, it, thumb, btn, note){
   });
 }
 
+function buildZipForm(images){
+  const f = document.createElement("form");
+  f.method = "POST"; f.action = "/api/zip"; f.className = "zipform";
+  const add = (name, value) => {
+    const i = document.createElement("input");
+    i.type = "hidden"; i.name = name; i.value = value; f.append(i);
+  };
+  images.forEach(it => { add("u", it.url); add("n", it.filename); });
+  add("z", images[0].filename.replace(/_\d+\.\w+$/, ""));
+  const b = document.createElement("button");
+  b.type = "submit"; b.textContent = "تحميل كل الصور (" + images.length + ") في ملف واحد";
+  f.append(b);
+  return f;
+}
+
 async function run(){
   msg.textContent = ""; results.replaceChildren();
   const link = input.value.trim();
@@ -140,6 +156,8 @@ async function run(){
       if(data.detail){ const d = document.createElement("small"); d.textContent = data.detail; msg.append(d); }
       return;
     }
+    const images = data.items.filter(it => it.type === "image");
+    if(images.length > 1) results.append(buildZipForm(images));
     data.items.forEach(it => results.append(buildCard(it)));
   }catch(e){
     msg.textContent = "تعذر الاتصال بالخادم. حاول مرة أخرى.";

@@ -30,7 +30,7 @@ def pick_username(data):
     return "instagram"
 
 
-def best_format(info, username, index):
+def best_format(info, username, index, post_code=None):
     """يرجع أفضل ملف يحتوي صورة وصوتاً معاً (بدون الحاجة إلى دمج)."""
     url = info.get("url")
     ext = info.get("ext") or "mp4"
@@ -51,8 +51,15 @@ def best_format(info, username, index):
             pool = pool or [f for f in formats if f.get("vcodec") != "none"] or formats
             pick = max(pool, key=quality)
         url, ext = pick["url"], pick.get("ext") or ext
+    if not url:
+        thumbs = info.get("thumbnails") or []
+        biggest = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
+                      default={}).get("url")
+        url = info.get("thumbnail") or biggest
+        ext = os.path.splitext(urlparse(url or "").path)[1].lstrip(".").lower()
+        ext = ext if ext in ("jpg", "jpeg", "png", "webp") else "jpg"
     kind = "image" if ext in ("jpg", "jpeg", "png", "webp") else "video"
-    code = re.sub(r"[^\w-]", "", str(info.get("id") or ""))
+    code = re.sub(r"[^\w-]", "", str(post_code or info.get("id") or ""))
     filename = f"{username}_{code}_{index}.{ext}" if code else f"{username}_{index}.{ext}"
     return {"url": url, "ext": ext, "type": kind,
             "thumb": info.get("thumbnail"), "filename": filename,
@@ -115,7 +122,8 @@ def info():
     if not IG_URL.match(link):
         return jsonify(error="الرابط غير صالح. استخدم رابط بوست أو ريل من انستغرام."), 400
 
-    opts = {"quiet": True, "skip_download": True, "noplaylist": False}
+    opts = {"quiet": True, "skip_download": True, "noplaylist": False,
+            "ignore_no_formats_error": True}
     if COOKIES and os.path.exists(COOKIES):
         opts["cookiefile"] = COOKIES
 
@@ -133,7 +141,7 @@ def info():
 
     entries = data.get("entries") or [data]
     username = pick_username(data)
-    items = [best_format(e, username, i + 1) for i, e in enumerate(entries) if e]
+    items = [best_format(e, username, i + 1, data.get("id")) for i, e in enumerate(entries) if e]
     items = [i for i in items if i["url"] and allowed_host(i["url"])]
     for i in items:
         if i["audio_url"] and not allowed_host(i["audio_url"]):
@@ -156,7 +164,7 @@ def debug():
         out["ffmpeg"] = os.path.exists(imageio_ffmpeg.get_ffmpeg_exe())
     except Exception as e:
         out["ffmpeg"] = f"missing: {e}"
-    opts = {"quiet": True, "skip_download": True}
+    opts = {"quiet": True, "skip_download": True, "ignore_no_formats_error": True}
     if COOKIES and os.path.exists(COOKIES):
         opts["cookiefile"] = COOKIES
     try:

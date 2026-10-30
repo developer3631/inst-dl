@@ -14,9 +14,17 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 app = Flask(__name__, static_folder=None)
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-IG_URL = re.compile(r"^https?://(www\.)?instagram\.com/([\w.]+/)?(p|reel|reels|tv)/[\w-]+", re.I)
+IG_URL = re.compile(
+    r"^https?://(www\.)?instagram\.com/("
+    r"([\w.]+/)?(p|reel|reels|tv)/[\w-]+"
+    r"|stories/(highlights/\d+|[\w.]+/\d+))", re.I)
 ALLOWED_CDN = ("cdninstagram.com", "fbcdn.net")
-COOKIES = os.environ.get("COOKIES_FILE")  # اختياري: ملف cookies.txt
+# ملف الكوكيز (للستوري): يوضع كـ Secret File في Render باسم cookies.txt
+COOKIES_SRC = os.environ.get("COOKIES_FILE", "/etc/secrets/cookies.txt")
+COOKIES = None
+if os.path.exists(COOKIES_SRC):
+    COOKIES = os.path.join(tempfile.gettempdir(), "ig_cookies.txt")
+    shutil.copyfile(COOKIES_SRC, COOKIES)  # نسخة قابلة للكتابة لأن yt-dlp يحدّثها
 
 
 def allowed_host(url):
@@ -124,6 +132,9 @@ def info():
     link = request.args.get("url", "").strip()
     if not IG_URL.match(link):
         return jsonify(error="الرابط غير صالح. استخدم رابط بوست أو ريل من انستغرام."), 400
+
+    if "/stories/" in link and not COOKIES:
+        return jsonify(error="الستوري يتطلب ملف cookies.txt على الخادم. راجع خطوات الإعداد."), 403
 
     opts = {"quiet": True, "skip_download": True, "noplaylist": False,
             "ignore_no_formats_error": True}

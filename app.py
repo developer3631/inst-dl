@@ -4,7 +4,6 @@ import re
 import subprocess
 from urllib.parse import urlparse
 
-import imageio_ffmpeg
 import requests
 import yt_dlp
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
@@ -143,6 +142,7 @@ def info():
 
 def merged_response(video, audio, name):
     """يدمج الفيديو والصوت بدون إعادة ترميز ويبثه مباشرة للمستخدم."""
+    import imageio_ffmpeg  # يُستورد هنا حتى لا يتعطل الموقع إن لم تُثبَّت المكتبة
     cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error",
            "-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0",
            "-c", "copy", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"]

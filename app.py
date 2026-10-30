@@ -1,7 +1,9 @@
 import html as htmllib
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from urllib.parse import urlparse
 
 import requests
@@ -189,27 +191,48 @@ def debug():
     return jsonify(out)
 
 
+def fetch_to(path, url):
+    with requests.get(url, headers={"User-Agent": UA}, stream=True, timeout=30) as r:
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            for chunk in r.iter_content(256 * 1024):
+                f.write(chunk)
+
+
 def merged_response(video, audio, name):
-    """يدمج الفيديو والصوت بدون إعادة ترميز ويبثه مباشرة للمستخدم."""
-    import imageio_ffmpeg  # يُستورد هنا حتى لا يتعطل الموقع إن لم تُثبَّت المكتبة
-    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error",
-           "-i", video, "-i", audio, "-map", "0:v:0", "-map", "1:a:0",
-           "-c", "copy", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    """ينزّل الصورة والصوت مؤقتاً، يدمجهما في ملف mp4 عادي، ثم يرسله."""
+    tmp = tempfile.mkdtemp()
+    out = os.path.join(tmp, "out.mp4")
+    try:
+        import imageio_ffmpeg  # يُستورد هنا حتى لا يتعطل الموقع إن لم تُثبَّت المكتبة
+        vpath, apath = os.path.join(tmp, "v.mp4"), os.path.join(tmp, "a.m4a")
+        fetch_to(vpath, video)
+        fetch_to(apath, audio)
+        res = subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-v", "error", "-i", vpath, "-i", apath,
+             "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-movflags", "+faststart", out],
+            capture_output=True, timeout=90)
+        if res.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+            raise RuntimeError("ffmpeg: " + res.stderr.decode(errors="ignore")[-300:])
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        app.logger.error("merge failed: %s", e)
+        return jsonify(error="فشل دمج الصوت مع الفيديو.", detail=str(e)[:300]), 502
 
     def stream():
         try:
-            while True:
-                chunk = proc.stdout.read(64 * 1024)
-                if not chunk:
-                    break
-                yield chunk
+            with open(out, "rb") as f:
+                while True:
+                    chunk = f.read(256 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
         finally:
-            proc.kill()
-            proc.wait()
+            shutil.rmtree(tmp, ignore_errors=True)
 
     return Response(stream(), headers={
         "Content-Type": "video/mp4",
+        "Content-Length": str(os.path.getsize(out)),
         "Content-Disposition": f'attachment; filename="{name}"',
     })
 
@@ -226,7 +249,10 @@ def download():
     if audio:
         return merged_response(url, audio, name)
 
-    upstream = requests.get(url, stream=True, timeout=20)
+    upstream = requests.get(url, headers={"User-Agent": UA}, stream=True, timeout=20)
+    if upstream.status_code >= 400:
+        return jsonify(error="رفض إنستغرام تحميل الملف.",
+                       detail=f"HTTP {upstream.status_code}"), 502
     headers = {
         "Content-Type": upstream.headers.get("Content-Type", "application/octet-stream"),
         "Content-Disposition": f'attachment; filename="{name}"',

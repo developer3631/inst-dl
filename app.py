@@ -199,7 +199,7 @@ def fetch_to(path, url):
                 f.write(chunk)
 
 
-def merged_response(video, audio, name):
+def merged_response(video, audio, name, disposition="attachment"):
     """ينزّل الصورة والصوت مؤقتاً، يدمجهما في ملف mp4 عادي، ثم يرسله."""
     tmp = tempfile.mkdtemp()
     out = os.path.join(tmp, "out.mp4")
@@ -233,7 +233,7 @@ def merged_response(video, audio, name):
     return Response(stream(), headers={
         "Content-Type": "video/mp4",
         "Content-Length": str(os.path.getsize(out)),
-        "Content-Disposition": f'attachment; filename="{name}"',
+        "Content-Disposition": f'{disposition}; filename="{name}"',
     })
 
 
@@ -242,12 +242,13 @@ def download():
     """يمرّر الملف عبر الخادم لتجنب حظر المتصفح، ويقبل روابط CDN الخاصة بانستغرام فقط."""
     url = request.args.get("u", "")
     name = re.sub(r"[^A-Za-z0-9._-]", "_", request.args.get("n", "instagram"))[:80]
+    disposition = "inline" if request.args.get("inline") == "1" else "attachment"
     audio = request.args.get("a", "")
     if not allowed_host(url) or (audio and not allowed_host(audio)):
         abort(400)
 
     if audio:
-        return merged_response(url, audio, name)
+        return merged_response(url, audio, name, disposition)
 
     upstream = requests.get(url, headers={"User-Agent": UA}, stream=True, timeout=20)
     if upstream.status_code >= 400:
@@ -255,7 +256,7 @@ def download():
                        detail=f"HTTP {upstream.status_code}"), 502
     headers = {
         "Content-Type": upstream.headers.get("Content-Type", "application/octet-stream"),
-        "Content-Disposition": f'attachment; filename="{name}"',
+        "Content-Disposition": f'{disposition}; filename="{name}"',
     }
     if "Content-Length" in upstream.headers:
         headers["Content-Length"] = upstream.headers["Content-Length"]

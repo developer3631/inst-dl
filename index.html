@@ -78,7 +78,8 @@ async function run(){
         card.append(img);
       }
       const a = document.createElement("a"); a.className = "btn";
-      a.href = "/api/dl?u=" + encodeURIComponent(it.url) + "&n=" + encodeURIComponent(it.filename);
+      a.href = "/api/dl?u=" + encodeURIComponent(it.url) + "&n=" + encodeURIComponent(it.filename)
+        + (it.audio_url ? "&a=" + encodeURIComponent(it.audio_url) : "");
       a.textContent = it.type === "image" ? "تحميل الصورة" : "تحميل الفيديو";
       card.append(a); results.append(card);
     });

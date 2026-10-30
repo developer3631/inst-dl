@@ -19,16 +19,32 @@ def allowed_host(url):
     return urlparse(url).scheme in ("http", "https") and host.endswith(ALLOWED_CDN)
 
 
-def best_format(info):
-    """يرجع رابط أفضل ملف فيديو/صورة من نتيجة yt-dlp."""
+def pick_username(data):
+    """يرجع اسم المستخدم (وليس الاسم الظاهر أو الرقم)."""
+    for key in ("channel", "uploader_id", "uploader"):
+        val = str(data.get(key) or "").strip()
+        if val and not val.isdigit():
+            return re.sub(r"[^A-Za-z0-9._]", "", val) or "instagram"
+    return "instagram"
+
+
+def best_format(info, username, index):
+    """يرجع أفضل ملف يحتوي صورة وصوتاً معاً (بدون الحاجة إلى دمج)."""
     url = info.get("url")
     ext = info.get("ext") or "mp4"
-    if not url and info.get("formats"):
-        vids = [f for f in info["formats"] if f.get("url") and f.get("vcodec") != "none"]
-        pick = (vids or info["formats"])[-1]
-        url, ext = pick["url"], pick.get("ext", ext)
+    formats = [f for f in (info.get("formats") or []) if f.get("url")]
+    if formats:
+        # استبعاد ملفات الفيديو بدون صوت وملفات الصوت فقط
+        both = [f for f in formats
+                if f.get("vcodec") != "none" and f.get("acodec") != "none"]
+        pool = both or [f for f in formats if f.get("vcodec") != "none"] or formats
+        pick = max(pool, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+        url, ext = pick["url"], pick.get("ext") or ext
     kind = "image" if ext in ("jpg", "jpeg", "png", "webp") else "video"
-    return {"url": url, "ext": ext, "type": kind, "thumb": info.get("thumbnail")}
+    code = re.sub(r"[^\w-]", "", str(info.get("id") or ""))
+    filename = f"{username}_{code}_{index}.{ext}" if code else f"{username}_{index}.{ext}"
+    return {"url": url, "ext": ext, "type": kind,
+            "thumb": info.get("thumbnail"), "filename": filename}
 
 
 @app.get("/")
@@ -53,7 +69,8 @@ def info():
         return jsonify(error="تعذر جلب المحتوى. قد يكون الحساب خاصاً أو الرابط خاطئ."), 422
 
     entries = data.get("entries") or [data]
-    items = [best_format(e) for e in entries if e]
+    username = pick_username(data)
+    items = [best_format(e, username, i + 1) for i, e in enumerate(entries) if e]
     items = [i for i in items if i["url"] and allowed_host(i["url"])]
     if not items:
         return jsonify(error="لم يتم العثور على وسائط قابلة للتحميل."), 404
@@ -64,7 +81,7 @@ def info():
 def download():
     """يمرّر الملف عبر الخادم لتجنب حظر المتصفح، ويقبل روابط CDN الخاصة بانستغرام فقط."""
     url = request.args.get("u", "")
-    name = re.sub(r"[^\w.-]", "_", request.args.get("n", "instagram"))[:60]
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", request.args.get("n", "instagram"))[:80]
     if not allowed_host(url):
         abort(400)
 

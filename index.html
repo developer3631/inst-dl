@@ -78,7 +78,7 @@ async function run(){
         card.append(img);
       }
       const a = document.createElement("a"); a.className = "btn";
-      a.href = "/api/dl?u=" + encodeURIComponent(it.url) + "&n=instagram_" + (i+1) + "." + it.ext;
+      a.href = "/api/dl?u=" + encodeURIComponent(it.url) + "&n=" + encodeURIComponent(it.filename);
       a.textContent = it.type === "image" ? "تحميل الصورة" : "تحميل الفيديو";
       card.append(a); results.append(card);
     });
